@@ -38,6 +38,12 @@ class VideoPipeline(
     private val width: Int,
     private val height: Int,
     private val log: (String) -> Unit,
+    /**
+     * When true, the pipeline only runs the H.264 encoder and exposes [encoderInputSurface] for
+     * an EXTERNAL producer (the Android Auto video decoder) to render into. No Presentation /
+     * MediaProjection source is created. See [encoderInputSurface] and AaVideoBridge.
+     */
+    private val externalSource: Boolean = false,
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var codec: MediaCodec? = null
@@ -83,6 +89,15 @@ class VideoPipeline(
             codec = c
             log("[VIDEO] encoder started ${width}x${height} h264 30fps")
 
+            drainThread = thread(name = "video-drain", isDaemon = true) { drainLoop() }
+
+            if (externalSource) {
+                // Android Auto mode: the AA VideoDecoder renders into inputSurface (see
+                // encoderInputSurface()). No Presentation/MediaProjection source here.
+                log("[VIDEO] EXTERNAL source mode (Android Auto) — encoder input surface ready")
+                return
+            }
+
             val projection = ProjectionHolder.projection
             if (projection != null) {
                 log("[VIDEO] FULL-SCREEN mirror mode (MediaProjection)")
@@ -91,7 +106,6 @@ class VideoPipeline(
                 log("[VIDEO] own-content mode (Presentation)")
                 main.post { setupDisplayAndPresentation() }
             }
-            drainThread = thread(name = "video-drain", isDaemon = true) { drainLoop() }
         } catch (e: Exception) {
             log("[VIDEO] start failed: $e")
             stop()
@@ -194,6 +208,14 @@ class VideoPipeline(
             try { codec.releaseOutputBuffer(idx, false) } catch (_: Exception) {}
         }
     }
+
+    /**
+     * The encoder's input Surface. In [externalSource] mode the Android Auto video decoder is
+     * pointed at this surface (`VideoDecoder.setSurface`), so decoded AA frames are re-encoded to
+     * the bike's 800x384 H.264 and pulled by the PXC data socket via [pollFrame]. Valid only
+     * after [start].
+     */
+    fun encoderInputSurface(): android.view.Surface? = inputSurface
 
     /** Called by the data socket on each REQ_RV_DATA_NEXT(114). Returns one access unit. */
     fun pollFrame(timeoutMs: Long): ByteArray? =

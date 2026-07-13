@@ -16,10 +16,18 @@
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature
         android:name="android.hardware.camera.any"
         android:required="false" />
+
+    <!-- Needed on Android 11+ to launch Google Android Auto's self-mode entry points. -->
+    <queries>
+        <package android:name="com.google.android.projection.gearhead" />
+        <package android:name="com.google.android.gms" />
+    </queries>
 
     <application
         android:allowBackup="true"
@@ -46,6 +54,10 @@
             android:name=".ProjectionService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+        <service
+            android:name=".AndroidAutoService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
         <meta-data
             android:name="com.google.mlkit.vision.DEPENDENCIES"
             android:value="barcode" />

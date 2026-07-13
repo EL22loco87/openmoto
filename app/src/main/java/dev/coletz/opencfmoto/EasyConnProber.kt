@@ -48,6 +48,7 @@ class EasyConnProber(
     @Volatile private var running = false
     @Volatile private var probed = false
     @Volatile private var video: VideoPipeline? = null
+    @Volatile private var ownsVideo = false
     @Volatile private var negW = 800
     @Volatile private var negH = 384
     @Volatile private var framesSent = 0
@@ -86,7 +87,10 @@ class EasyConnProber(
 
     fun stop() {
         running = false
-        video?.stop(); video = null
+        // Only stop the pipeline if we created it; the shared Android Auto pipeline is owned
+        // by AndroidAutoService and must outlive a bike disconnect.
+        if (ownsVideo) video?.stop()
+        video = null; ownsVideo = false
         heartbeatThread?.interrupt(); heartbeatThread = null
         for (s in servers) try { s.close() } catch (_: IOException) {}
         servers.clear()
@@ -257,8 +261,18 @@ class EasyConnProber(
             }
             112 -> { // REQ_RV_DATA_START → start encoder, then RLY_RV_DATA_START(113)
                 if (video == null) {
-                    log("[$tag] REQ_RV_DATA_START(112): starting video ${negW}x${negH}")
-                    video = VideoPipeline(context, negW, negH, log).also { it.start() }
+                    val shared = AaVideoBridge.pipeline
+                    if (shared != null) {
+                        // Android Auto is running: pull encoded frames from its (already started)
+                        // pipeline instead of creating our own Presentation/mirror source.
+                        video = shared
+                        ownsVideo = false
+                        log("[$tag] REQ_RV_DATA_START(112): using shared Android Auto video pipeline")
+                    } else {
+                        log("[$tag] REQ_RV_DATA_START(112): starting video ${negW}x${negH}")
+                        video = VideoPipeline(context, negW, negH, log).also { it.start() }
+                        ownsVideo = true
+                    }
                 }
                 log("[$tag] → RLY 113")
                 sendReqBase(out, 113, null)
