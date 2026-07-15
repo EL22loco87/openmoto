@@ -101,11 +101,16 @@ class VideoPipeline(
     /** Create + start the H.264 encoder at [w]x[h] and its drain thread. Returns false on failure. */
     private fun createEncoder(w: Int, h: Int): Boolean {
         try {
+            val enc = BikeProfileHolder.active.encoder
             fun baseFormat() = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-                setInteger(MediaFormat.KEY_BIT_RATE, 2_500_000)
-                setInteger(MediaFormat.KEY_FRAME_RATE, 30)
-                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)   // frequent keyframes for late joiners
+                setInteger(MediaFormat.KEY_BIT_RATE, enc.bitRate)
+                setInteger(MediaFormat.KEY_FRAME_RATE, enc.frameRate)
+                // Default is ALL-IDR (every frame a keyframe). The bike pull-queue drops frames under
+                // load, which breaks P-frame references and paints the dash GREEN until the next
+                // keyframe. With all-IDR every frame is self-contained, so a drop self-heals on the
+                // very next frame (this is what made the Python-POC stream clean). 0 = all sync frames.
+                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, enc.iFrameIntervalSeconds)
                 // Surface-input encoders only emit on new buffers; a STATIC screen (e.g. mirror of
                 // an idle app) then produces zero frames and the bike times out. Repeat the last
                 // frame if nothing new arrives so output is continuous even when the screen is still.
@@ -129,7 +134,7 @@ class VideoPipeline(
             c.start()
             codec = c
             encoderW = w; encoderH = h
-            log("[VIDEO] encoder started ${w}x${h} h264 30fps")
+            log("[VIDEO] encoder started ${w}x${h} h264 ${enc.frameRate}fps ${enc.bitRate / 1_000_000}Mbps")
             if (drainThread == null) drainThread = thread(name = "video-drain", isDaemon = true) { drainLoop() }
             return true
         } catch (e: Exception) {
@@ -169,7 +174,7 @@ class VideoPipeline(
             }, main)
             val flags = android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR
             virtualDisplay = projection.createVirtualDisplay(
-                "OpenCfMotoMirror", width, height, 160, flags, inputSurface, null, main,
+                "OpenMotoMirror", width, height, 160, flags, inputSurface, null, main,
             )
             log("[VIDEO] mirroring device screen → ${width}x${height} (letterboxed to fit)")
         } catch (e: Exception) {
@@ -182,7 +187,7 @@ class VideoPipeline(
             val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
             val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY or
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
-            val vd = dm.createVirtualDisplay("OpenCfMoto", width, height, 160, inputSurface, flags)
+            val vd = dm.createVirtualDisplay("OpenMoto", width, height, 160, inputSurface, flags)
             virtualDisplay = vd
             val display = vd?.display ?: run { log("[VIDEO] virtualDisplay.display null"); return }
 
@@ -193,7 +198,7 @@ class VideoPipeline(
                 setBackgroundColor(Color.parseColor("#0D47A1"))
             }
             val title = TextView(pres.context).apply {
-                text = "Hacked by Coletz :P"
+                text = "OpenMoto"
                 setTextColor(Color.WHITE)
                 textSize = 28f
                 gravity = Gravity.CENTER
@@ -250,6 +255,14 @@ class VideoPipeline(
                     if (!frameQueue.offerLast(out)) {
                         frameQueue.pollFirst()
                         frameQueue.offerLast(out)
+                        // A drop breaks P-frame references (green frames). With all-IDR encoding this is
+                        // already harmless, but request a sync frame as insurance if the encoder ignored
+                        // KEY_I_FRAME_INTERVAL=0, so any green heals on the next frame instead of ~1s later.
+                        try {
+                            codec.setParameters(android.os.Bundle().apply {
+                                putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
+                            })
+                        } catch (_: Exception) {}
                     }
                 }
             }
@@ -267,6 +280,25 @@ class VideoPipeline(
 
     /** Compositor mode: the surface the AA decoder renders into (letterboxed before the encoder). */
     fun decoderInputSurface(): android.view.Surface? = aaCompositor?.inputSurface
+
+    /**
+     * Attach an on-screen preview of the live AA video for the in-app control surface (compositor /
+     * Android Auto mode only). [surface] takes ownership of the single preview slot.
+     */
+    fun attachPreview(surface: android.view.Surface, viewW: Int, viewH: Int) {
+        val src = BikeProfileHolder.active.aaVideo
+        aaCompositor?.attachPreview(surface, viewW, viewH, src.width, src.height)
+    }
+
+    /** Detach [surface] from the preview slot (no-op if it isn't the current owner). */
+    fun detachPreview(surface: android.view.Surface) {
+        aaCompositor?.detachPreview(surface)
+    }
+
+    /** The letterbox rect [x,y,w,h] the AA image occupies in the preview view; null if unset. */
+    fun previewRect(): IntArray? = aaCompositor?.let {
+        if (it.pvpW == 0 || it.pvpH == 0) null else intArrayOf(it.pvpX, it.pvpY, it.pvpW, it.pvpH)
+    }
 
     /** Called by the data socket on each REQ_RV_DATA_NEXT(114). Returns one access unit. */
     fun pollFrame(timeoutMs: Long): ByteArray? =

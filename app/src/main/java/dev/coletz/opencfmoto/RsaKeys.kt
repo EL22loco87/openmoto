@@ -11,12 +11,12 @@ import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
 
 /**
- * Mirrors net.easyconn.carman.utils.RSAUtil.
+ * RSA handshake helpers for the PXC connection.
  *
- * The Carbit SDK generates a 1024-bit RSA keypair locally on first run.
- *   - The bike encrypts a HUID with our public key  → we decrypt with private key (decryptByPrivateKey)
- *   - The bike sends `huid` cleartext in CLIENT_INFO → we sign by encrypting with the private key
- *     (encryptHUID), bike verifies with our public key.
+ * The client generates a 1024-bit RSA keypair locally. The observed handshake uses it two ways:
+ *   - The bike encrypts a HUID with our public key  → we decrypt with our private key.
+ *   - The bike sends `huid` cleartext in CLIENT_INFO → we "sign" it by encrypting with our private
+ *     key, and the bike verifies with our public key.
  *
  * Single in-memory keypair for the session — that's enough for a PoC.
  */

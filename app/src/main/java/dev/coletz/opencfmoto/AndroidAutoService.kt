@@ -56,7 +56,7 @@ class AndroidAutoService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
         val notification: Notification = Notification.Builder(this, channelId)
-            .setContentTitle("OpenCfMoto — Android Auto")
+            .setContentTitle("OpenMoto — Android Auto")
             .setContentText("Receiving Android Auto for the bike dash — tap to open")
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setContentIntent(openApp)
@@ -71,7 +71,7 @@ class AndroidAutoService : Service() {
         }
 
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "OpenCfMoto:AndroidAuto").apply {
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "OpenMoto:AndroidAuto").apply {
             setReferenceCounted(false)
             acquire(4 * 60 * 60 * 1000L /* 4h safety cap */)
         }

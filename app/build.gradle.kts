@@ -11,7 +11,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "dev.coletz.opencfmoto"
+        applicationId = "io.github.negligentnarwhal.openmoto"
         minSdk = 29
         targetSdk = 36
         versionCode = 1

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/control_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/black">
+
+    <!-- Fullscreen live Android Auto: tap/drag to control. Sits ABOVE the bar so the bar never
+         covers AA's own bottom controls. -->
+    <SurfaceView
+        android:id="@+id/aa_surface"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- Slim bar to return to the app. -->
+    <LinearLayout
+        android:id="@+id/fs_bar"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:background="@color/scrim">
+
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btn_exit_fs"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            style="@style/OCF.GhostButton"
+            android:text="⤺  BACK TO APP" />
+    </LinearLayout>
+</LinearLayout>

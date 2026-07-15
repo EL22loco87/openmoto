@@ -1,4 +1,4 @@
-// OpenCfMoto glue (uses AGPLv3 code ported from headunit-revived). Orchestrates the loopback
+// OpenMoto glue (uses AGPLv3 code ported from headunit-revived). Orchestrates the loopback
 // "self-mode" Android Auto Projection receiver:
 //   1. Listen on TCP 127.0.0.1:5288 (+ NSD _aawireless._tcp).
 //   2. Launch Google Android Auto's WirelessStartupActivity pointed at 127.0.0.1:5288 (no VPN).
@@ -73,6 +73,7 @@ class AaReceiver(
         running = false
         try { transport?.quit() } catch (_: Exception) {}
         transport = null
+        AaInput.transport = null
         try { connection?.disconnect() } catch (_: Exception) {}
         connection = null
         try { videoDecoder.stop("AaReceiver.stop") } catch (_: Exception) {}
@@ -110,16 +111,19 @@ class AaReceiver(
         t.onQuit = { clean ->
             log("[AA] transport quit (clean=$clean, userExit=${t.wasUserExit})")
             transport = null
+            AaInput.transport = null
             try { conn.disconnect() } catch (_: Exception) {}
             connection = null
             // Server keeps listening — AA (or the user) can reconnect.
         }
         transport = t
+        AaInput.transport = t   // publish for the in-app control surface (touch injection)
 
         log("[AA] starting AAP handshake (version + SSL)…")
         if (!t.startHandshake(conn)) {
             log("[AA] handshake FAILED")
             transport = null
+            AaInput.transport = null
             try { conn.disconnect() } catch (_: Exception) {}
             connection = null
             return

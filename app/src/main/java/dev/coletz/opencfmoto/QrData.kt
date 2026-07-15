@@ -3,8 +3,7 @@ package dev.coletz.opencfmoto
 import android.net.Uri
 
 /**
- * Mirrors net.easyconn.carman.common.base.QrResult.parseResult — the bike's QR is a URL
- * whose query string carries the connection params:
+ * The bike's pairing QR is a URL whose query string carries the connection params:
  *
  *   http://www.carbit.com.cn/...?modelid=...&sn=...&action=9
  *     &ssid=CFMOTO-xxxxxx&pwd=xxxxxx&auth=wpa2-psk

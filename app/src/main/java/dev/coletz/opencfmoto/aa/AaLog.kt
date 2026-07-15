@@ -7,11 +7,11 @@ import android.util.Log
  *
  * Mirrors the small subset of headunit-revived's `AppLog` API used by the ported files
  * (printf-style i/d/w/v/e), so those files port with minimal edits. Every line is also
- * forwarded to [sink] — wired to OpenCfMoto's on-screen log + Share export — prefixed
+ * forwarded to [sink] — wired to OpenMoto's on-screen log + Share export — prefixed
  * with the `[AA]` stage tag per the project logging convention.
  */
 object AaLog {
-    const val TAG = "OpenCfMotoAA"
+    const val TAG = "OpenMotoAA"
 
     /** Flip to true for very chatty per-message logging during bring-up debugging. */
     @Volatile var LOG_VERBOSE = false

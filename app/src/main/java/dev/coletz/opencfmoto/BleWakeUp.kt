@@ -20,7 +20,7 @@ import android.os.Looper
 /**
  * Drives the BLE wake-up handshake that unlocks the bike's PXC server.
  *
- * Sequence (all wrapped in CmdBaseHead-style frames + tiny protobuf, see [BleProtocol]):
+ * Sequence (all wrapped in the BLE wire frame + tiny protobuf, see [BleProtocol]):
  *   1. Scan: by MAC if known (like the official app), else match advertised UUID / name
  *   2. GATT connect → discoverServices → requestMtu(185)
  *   3. Subscribe to NOTIFY characteristic (write 0x0100 to CCCD)

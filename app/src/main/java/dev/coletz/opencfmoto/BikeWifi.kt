@@ -31,6 +31,7 @@ object BikeWifi {
         onAvailable: (Network) -> Unit,
         onLost: () -> Unit,
         log: (String) -> Unit,
+        onUnavailable: () -> Unit = {},
     ) {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         callback?.let {            try { cm.unregisterNetworkCallback(it) } catch (_: Exception) {}
@@ -63,6 +64,7 @@ object BikeWifi {
 
             override fun onUnavailable() {
                 log("Wi-Fi join unavailable (user declined or out of range)")
+                onUnavailable()
             }
         }
         callback = cb

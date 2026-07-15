@@ -1,9 +1,65 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
-    <style name="Base.Theme.OpenCfMoto" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+    <style name="Base.Theme.OpenMoto" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/ink</item>
+        <item name="android:colorBackground">@color/ink</item>
+        <item name="colorPrimary">@color/paper</item>
+        <item name="colorOnPrimary">@color/ink</item>
+        <item name="colorSurface">@color/ink</item>
+        <item name="colorOnSurface">@color/paper</item>
+        <item name="android:textColorPrimary">@color/paper</item>
+        <item name="android:textColorSecondary">@color/paper_dim</item>
+        <item name="android:fontFamily">@font/app_mono</item>
+        <item name="fontFamily">@font/app_mono</item>
+        <item name="colorControlActivated">@color/paper</item>
+        <item name="android:textColorHighlight">@color/paper_faint</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 
-    <style name="Theme.OpenCfMoto" parent="Base.Theme.OpenCfMoto" />
+    <style name="Theme.OpenMoto" parent="Base.Theme.OpenMoto" />
+
+    <style name="OCF.PunchButton" parent="">
+        <item name="android:background">@null</item>
+        <item name="android:textColor">@color/text_ghost_button</item>
+        <item name="android:fontFamily">@font/app_mono</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:letterSpacing">0.08</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="android:gravity">center</item>
+    </style>
+
+    <style name="OCF.GhostButton" parent="">
+        <item name="android:background">@drawable/bg_ghost_button</item>
+        <item name="android:textColor">@color/text_ghost_button</item>
+        <item name="android:fontFamily">@font/app_mono</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:letterSpacing">0.12</item>
+        <item name="android:minHeight">44dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:paddingLeft">16dp</item>
+        <item name="android:paddingRight">16dp</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <style name="OCF.GhostButton.Small">
+        <item name="android:textSize">10sp</item>
+        <item name="android:minHeight">30dp</item>
+        <item name="android:paddingLeft">10dp</item>
+        <item name="android:paddingRight">10dp</item>
+        <item name="android:letterSpacing">0.15</item>
+    </style>
+
+    <style name="OCF.SectionLabel" parent="">
+        <item name="android:textColor">@color/paper_dim</item>
+        <item name="android:textSize">10sp</item>
+        <item name="android:letterSpacing">0.3</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:fontFamily">@font/app_mono</item>
+        <item name="android:textStyle">bold</item>
+    </style>
 </resources>

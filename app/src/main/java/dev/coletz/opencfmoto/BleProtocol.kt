@@ -5,7 +5,7 @@ import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Wire frame + crypto helpers reverse-engineered from CFMoto's BleService.
+ * Wire frame + crypto helpers for the bike's BLE service, from observed traffic.
  *
  * Frame: AB CD | cmd(1) | len_LE(2) | payload | sum8 | CF
  *   sum8 = ( cmd + len_lo + len_hi + Σ(payload) ) mod 256

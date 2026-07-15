@@ -1,5 +1,5 @@
 // Adapted from headunit-revived (AGPLv3): aap/protocol/messages/ServiceDiscoveryResponse.kt
-// Video-only head-unit profile for OpenCfMoto: advertises 720x1280 PORTRAIT H.264 video
+// Video-only head-unit profile for OpenMoto: advertises 720x1280 PORTRAIT H.264 video
 // (composited aspect-correct into the bike's requested canvas — the CFDL26 dash is a tall 800x951
 // panel), a driving-status sensor, a touchscreen input service, and a PCM microphone (required for
 // AA bring-up). Audio sink, navigation-status, media-playback and bluetooth services from HUR are
@@ -68,7 +68,10 @@ class ServiceDiscoveryResponse
                 }.build()
             }.build())
 
-            // --- Input service (touchscreen; declared for compatibility, driven by voice in v1) ---
+            // --- Input service: touchscreen only. Drives the in-app control surface via absolute
+            //     touch. We deliberately do NOT advertise keycodes: doing so puts Android Auto into
+            //     focus/rotary mode, which destabilised the video session (decoder stalls → teardown
+            //     ~30s in). Touch-only keeps AA in its stable mode. ---
             services.add(Control.Service.newBuilder().also { service ->
                 service.id = Channel.ID_INP
                 service.inputSourceService = Control.Service.InputSourceService.newBuilder().also { inp ->
@@ -112,22 +115,22 @@ class ServiceDiscoveryResponse
             }.build())
 
             return Control.ServiceDiscoveryResponse.newBuilder().apply {
-                make = "OpenCfMoto"
+                make = "OpenMoto"
                 model = "MotoPlay"
                 year = "2024"
                 vehicleId = "opencfmoto"
-                headUnitModel = "CFDL16-6GUV"
+                headUnitModel = "OpenMoto"
                 headUnitMake = "CFMoto"
                 headUnitSoftwareBuild = "1"
                 headUnitSoftwareVersion = "0.1.0"
                 driverPosition = Control.DriverPosition.DRIVER_POSITION_LEFT
                 canPlayNativeMediaDuringVr = false
                 hideProjectedClock = false
-                setDisplayName("OpenCfMoto")
+                setDisplayName("OpenMoto")
                 setHeadunitInfo(Common.HeadUnitInfo.newBuilder().apply {
                     setHeadUnitMake("CFMoto")
-                    setHeadUnitModel("CFDL16-6GUV")
-                    setMake("OpenCfMoto")
+                    setHeadUnitModel("OpenMoto")
+                    setMake("OpenMoto")
                     setModel("MotoPlay")
                     setYear("2024")
                     setVehicleId("opencfmoto")

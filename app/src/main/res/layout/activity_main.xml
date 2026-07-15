@@ -5,67 +5,317 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="12dp"
+    android:background="@color/ink"
+    android:paddingLeft="18dp"
+    android:paddingRight="18dp"
+    android:paddingTop="12dp"
+    android:paddingBottom="12dp"
     tools:context=".MainActivity">
 
     <LinearLayout
+        android:id="@+id/header_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center">
+        android:gravity="center_vertical">
 
-        <Button
+        <TextView
+            android:id="@+id/header_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/header_title"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="@color/paper"
+            android:letterSpacing="0.12" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/header_version"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="10sp"
+            android:textColor="@color/paper_dim"
+            android:letterSpacing="0.2"
+            tools:text="V1.0" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:background="@color/paper"
+        android:layout_marginTop="10dp" />
+
+    <LinearLayout
+        android:id="@+id/status_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="14dp">
+
+        <TextView
+            style="@style/OCF.SectionLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/label_status" />
+
+        <View
+            android:id="@+id/status_blink"
+            android:layout_width="9dp"
+            android:layout_height="9dp"
+            android:background="@color/paper"
+            android:layout_marginStart="10dp" />
+
+        <TextView
+            android:id="@+id/status_value"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/paper"
+            android:letterSpacing="0.15"
+            android:textAllCaps="true"
+            tools:text="IDLE" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/paper_faint"
+        android:layout_marginTop="14dp" />
+
+    <dev.coletz.opencfmoto.PunchButton
+        android:id="@+id/btn_pair"
+        android:layout_width="match_parent"
+        android:layout_height="76dp"
+        android:layout_marginTop="18dp"
+        style="@style/OCF.PunchButton"
+        android:text="@string/btn_pair"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/controls_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="18dp">
+
+        <dev.coletz.opencfmoto.PunchButton
             android:id="@+id/btn_aa_start"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="76dp"
             android:layout_weight="1"
-            android:text="Start" />
+            style="@style/OCF.PunchButton"
+            android:text="@string/btn_android_auto"
+            android:layout_marginEnd="12dp" />
 
-        <Button
-            android:id="@+id/btn_aa_stop"
+        <dev.coletz.opencfmoto.PunchButton
+            android:id="@+id/btn_mirror_start"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="76dp"
             android:layout_weight="1"
-            android:text="Stop" />
+            style="@style/OCF.PunchButton"
+            android:text="@string/btn_mirror" />
+    </LinearLayout>
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btn_aa_stop"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="12dp"
+        style="@style/OCF.GhostButton"
+        android:text="@string/btn_stop" />
+
+    <!-- Compact inline Android Auto control surface: appears while AA is live. Touch/drag the view
+         to drive AA; the fullscreen toggle opens the big landscape view (ControlActivity). -->
+    <FrameLayout
+        android:id="@+id/control_surface"
+        android:layout_width="match_parent"
+        android:layout_height="196dp"
+        android:layout_marginTop="12dp"
+        android:visibility="gone"
+        android:background="@color/black">
+
+        <SurfaceView
+            android:id="@+id/cs_surface"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <TextView
+            android:id="@+id/cs_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start"
+            android:layout_margin="8dp"
+            android:background="@color/scrim"
+            android:paddingLeft="8dp"
+            android:paddingRight="8dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:text="CONTROL AA"
+            android:textColor="@color/paper_dim"
+            android:textSize="10sp"
+            android:letterSpacing="0.15" />
+
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/cs_fullscreen"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="10dp"
+            style="@style/OCF.GhostButton"
+            android:textSize="20sp"
+            android:text="⛶" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:id="@+id/bike_panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/bg_panel"
+        android:layout_marginTop="18dp"
+        android:padding="14dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                style="@style/OCF.SectionLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/label_bike" />
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_rename_bike"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                style="@style/OCF.GhostButton.Small"
+                android:text="@string/btn_rename"
+                android:layout_marginEnd="8dp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btn_forget_bike"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                style="@style/OCF.GhostButton.Small"
+                android:text="@string/btn_forget" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/bike_alias"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="@color/paper"
+            android:letterSpacing="0.05"
+            android:layout_marginTop="10dp"
+            tools:text="CFMOTO-244E67" />
+
+        <TextView
+            android:id="@+id/bike_ssid"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="10sp"
+            android:textColor="@color/paper_dim"
+            android:letterSpacing="0.1"
+            android:layout_marginTop="2dp"
+            tools:text="DIRECT-go-CFMOTO-244E67" />
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/log_header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="end"
-        >
+        android:gravity="center_vertical"
+        android:layout_marginTop="18dp">
 
-        <Button
+        <TextView
+            style="@style/OCF.SectionLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/label_log" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1"
+            android:background="@color/paper_faint"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp" />
+
+        <androidx.appcompat.widget.AppCompatButton
             android:id="@+id/btn_share_log"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Share Logs" />
+            style="@style/OCF.GhostButton.Small"
+            android:text="@string/btn_share"
+            android:layout_marginEnd="8dp" />
 
-        <Button
+        <androidx.appcompat.widget.AppCompatButton
             android:id="@+id/btn_clear"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Clear Logs" />
+            style="@style/OCF.GhostButton.Small"
+            android:text="@string/btn_clear"
+            android:layout_marginEnd="8dp" />
+
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btn_toggle_log"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            style="@style/OCF.GhostButton.Small"
+            android:text="@string/btn_hide"
+            android:minWidth="56dp" />
     </LinearLayout>
 
     <ScrollView
         android:id="@+id/log_scroll"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_marginTop="8dp"
-        android:background="#111"
-        android:padding="6dp">
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="10dp"
+        android:background="@drawable/bg_log"
+        android:padding="10dp">
 
-        <TextView
-            android:id="@+id/log_view"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:textColor="#9CDCFE"
-            android:textSize="11sp"
-            android:textIsSelectable="true"
-            android:contentDescription="Logs"
-            />
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/log_view"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="11sp"
+                android:textColor="@color/paper_soft"
+                android:lineSpacingExtra="3dp"
+                android:textIsSelectable="true"
+                android:contentDescription="Logs" />
+
+            <TextView
+                android:id="@+id/log_cursor"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/cursor_block"
+                android:textSize="11sp"
+                android:textColor="@color/paper" />
+        </LinearLayout>
     </ScrollView>
 </LinearLayout>

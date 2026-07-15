@@ -6,14 +6,14 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * 16-byte CmdBaseHead frame used on the PXC ctrl socket.
+ * 16-byte PXC control-frame header used on the PXC ctrl socket.
  *   [0..3]  uint32 cmdType   (little-endian)
  *   [4..7]  uint32 totalLen  (= 16 + payload.size)
  *   [8..11] uint32 magic     (= cmdType XOR totalLen)
  *   [12..15] reserved (zero)
  *   payload[totalLen - 16]
  *
- * Mirrors net.easyconn.carman.sdk_communication.CmdBaseHead in the decompiled SDK.
+ * Layout determined from observed control-socket traffic.
  */
 data class PxcFrame(val cmd: Int, val payload: ByteArray) {
 
@@ -36,14 +36,14 @@ data class PxcFrame(val cmd: Int, val payload: ByteArray) {
     companion object {
         // Channel-selection cmds. First frame on a fresh ctrl socket selects which
         // PXC channel this connection belongs to. Server echoes back channelId+1 on accept.
-        // Decoded from net.easyconn.carman.sdk_communication.PXCService.handleConnect().
+        // (observed from the control-socket handshake.)
         const val CMD_CHANNEL_CAR_CTRL    = 65536      // 0x10000   ack=0x10001
         const val CMD_CHANNEL_CAR_DATA    = 131072     // 0x20000   ack=0x20001
         const val CMD_CHANNEL_RV_CTRL     = 196608     // 0x30000   ack=0x30001  Carbit "RV" (regular bike)
         const val CMD_CHANNEL_RV_DATA     = 262144     // 0x40000   ack=0x40001
         // MCULite is the lightweight variant used by CFMoto/Zeeho clusters (this bike).
-        // SDK source uses `android.R.drawable.alert_dark_frame` etc. as opaque cmd id literals;
-        // those resolve to ints from android.jar at compile/link time.
+        // These cmd ids are stashed as android.R resource ids — opaque int literals that
+        // resolve from android.jar at compile/link time.
         @JvmField val CMD_CHANNEL_MCULITE_CTRL = android.R.drawable.alert_dark_frame
         @JvmField val CMD_CHANNEL_MCULITE_DATA = android.R.layout.activity_list_item
         @JvmField val CMD_CHANNEL_MCU_CTRL     = android.R.color.darker_gray
@@ -125,7 +125,7 @@ data class PxcFrame(val cmd: Int, val payload: ByteArray) {
             return true
         }
 
-        /** Reads one CmdBaseHead frame from the stream. Returns null on EOF or bad header. */
+        /** Reads one PXC control frame from the stream. Returns null on EOF or bad header. */
         fun read(input: InputStream): PxcFrame? {
             val header = ByteArray(16)
             if (!readFully(input, header, 16)) return null

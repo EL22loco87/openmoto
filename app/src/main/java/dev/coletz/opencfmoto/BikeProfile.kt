@@ -29,6 +29,18 @@ data class AaVideoSpec(val resolution: AaResolution, val dpi: Int) {
     val height: Int get() = resolution.h
 }
 
+/**
+ * H.264 encoder config for the stream sent to a dash. The defaults (all-IDR, 6 Mbps, 30 fps) are what
+ * made the video stream stable across every bike tested — all-IDR self-heals the frame drops the bike's
+ * pull-queue causes. A profile only needs to override this if a specific dash wants different params.
+ */
+data class EncoderSpec(
+    val bitRate: Int = 6_000_000,
+    val frameRate: Int = 30,
+    /** Key-frame interval in seconds; 0 = ALL-IDR (every frame a keyframe). */
+    val iFrameIntervalSeconds: Int = 0,
+)
+
 interface BikeProfile {
     /** Human-readable label — appears in bike-test logs so a capture is self-describing. */
     val name: String
@@ -53,6 +65,17 @@ interface BikeProfile {
     /** Value we advertise in our own CLIENT_INFO reply's `supportFunction`. */
     val advertisedSupportFunction: Int
 
+    /**
+     * This dashboard never sends its own PXC heartbeats, so an idle control socket (:10922) makes the
+     * bike tear down and re-handshake the whole session every ~7s. When true, the phone proactively
+     * sends [PxcFrame.CMD_HEARTBEAT] (0x70000000) to the bike every ~2s to keep the control socket
+     * alive. Verified on the CFMoto 800NK (sdkVersion 0.9.23.4): this is what gives a stable stream.
+     */
+    val requiresPhoneHeartbeat: Boolean get() = false
+
+    /** H.264 encoder config for the video this dash receives. Default = all-IDR 6 Mbps / 30 fps. */
+    val encoder: EncoderSpec get() = EncoderSpec()
+
     /** Build the phone's CLIENT_INFO reply (cmd 0x10011). `phoneUuid` is owned by [PxcHandshake]. */
     fun buildClientInfoReply(info: JSONObject, huid: String?, phoneUuid: String): JSONObject
 
@@ -75,7 +98,7 @@ interface BikeProfile {
 /** Registry + selection. Never returns null — falls back to the legacy (BIKE A) profile. */
 object BikeProfiles {
     val legacy: BikeProfile = LegacyCfdl16Profile
-    private val all: List<BikeProfile> = listOf(Cfdl26Profile, LegacyCfdl16Profile)
+    private val all: List<BikeProfile> = listOf(Nk800Profile, Cfdl26Profile, LegacyCfdl16Profile)
 
     /** Authoritative selection from CLIENT_INFO (during the PXC handshake). */
     fun select(info: JSONObject, log: (String) -> Unit): BikeProfile {
@@ -115,7 +138,7 @@ private fun basePhoneClientInfo(huid: String?, phoneUuid: String, supportFunctio
         put("token", 0)
         put("pubkey", RsaKeys.publicKeyBase64)
         put("encryptedHUID", huid?.let { RsaKeys.signHuid(it) } ?: "")
-        put("bluetoothName", "OpenCfMoto")
+        put("bluetoothName", "OpenMoto")
         put("supportH264IFrame", true)
         put("supportFunction", supportFunction)
         put("appVersionFingerPrint", "opencfmoto-poc")
@@ -210,5 +233,62 @@ object Cfdl26Profile : BikeProfile {
         // NOTE if this still stalls: enableSockServerAuth=true may need a real auth exchange (the
         // 0x2001x REMOTE_AUTH_RESULT / 0x3001x AUTH_HUID family) rather than a bare ack — the log
         // above will show which frame the bike repeats or waits on.
+    }
+}
+
+/**
+ * BIKE C — the CFMoto 800NK (US-market). Head unit HUID prefix "CRCP" (e.g. CRCP230501740),
+ * HUName CFMOTO-244E67, QR modelId/channel 66660703, **sdkVersion 0.9.23.4** — an OLDER CFDL16-family
+ * dialect than the 675 (0.9.29.1). Landscape 800x400 non-touch panel over Wi-Fi Direct.
+ *
+ * Reverse-engineered live (2026-07-14) with the Python prober + LIVI POC. Two behaviours diverge from
+ * the working 675/1000MT-X and MUST be handled or the stream never stabilises:
+ *   1. PULL video — the bike drives frame timing via REQ_RV_DATA_NEXT(114); we answer one AU each and
+ *      never push unsolicited. (This is already the prober's media-plane behaviour — nothing to add.)
+ *   2. The bike sends NO heartbeats of its own, so the idle control socket resets the whole session
+ *      every ~7s. [requiresPhoneHeartbeat] = true makes the phone send 0x70000000 every ~2s.
+ * It also emits extra notify frames (0x10450, 0x10470 voice grammar, 0x104a0 OTA-FTP info) that must be
+ * acked cmd+1 — same as CFDL26, handled in [handleUnknownControl].
+ */
+object Nk800Profile : BikeProfile {
+    override val name = "CFMoto 800NK (CRCP / sdk 0.9.23.4, BIKE C)"
+    override val requiresSockServerAuth = false
+    override val supportsScreenTouch = false
+    override val advertisedSupportFunction = 128
+    override val requiresPhoneHeartbeat = true
+
+    /** The 800NK's landscape panel takes 800x400. Ask AA for landscape 800x480 (nearest AA tier);
+     *  the compositor letterboxes/crops it into the 800x400 canvas. ~140 dpi (per AA negotiation). */
+    override val aaVideo = AaVideoSpec(AaResolution.LANDSCAPE_800x480, dpi = 140)
+
+    /** US 800NK QR modelId — used to pick AA resolution before connecting. */
+    override fun matchesModelId(modelId: String): Boolean = modelId.trim() == "66660703"
+
+    override fun score(info: JSONObject): Int {
+        var s = 0
+        if (info.optString("sdkVersion") == "0.9.23.4") s += 5          // unique to this unit
+        if (info.optString("channel") == "66660703") s += 3            // modelId in CLIENT_INFO
+        if (info.optString("HUID").startsWith("CRCP")) s += 3          // this HU hardware family
+        // generic tie-breakers (also true on the 675, so kept small)
+        if (!info.optBoolean("enableSockServerAuth", false) &&
+            info.optInt("supportFunction", 0) == 128 &&
+            !info.optBoolean("supportScreenTouch", false)) s += 1
+        return s
+    }
+
+    override fun buildClientInfoReply(info: JSONObject, huid: String?, phoneUuid: String): JSONObject =
+        basePhoneClientInfo(huid, phoneUuid, advertisedSupportFunction)
+
+    /** Ack this unit's extra notify frames (0x10450 / 0x10470 / 0x104a0 …) with cmd+1, exactly as the
+     *  CFDL26 unit needs — otherwise the bike stalls before opening the media ports. */
+    override fun handleUnknownControl(
+        tag: String, frame: PxcFrame, out: OutputStream, log: (String) -> Unit,
+    ): Boolean {
+        val body = if (frame.payload.isEmpty()) "" else String(frame.payload, Charsets.UTF_8)
+        val ack = frame.cmd + 1
+        log("[$tag] NK800 ctrl ${frame.cmdHex()} (${PxcFrame.nameOf(frame.cmd)}) len=${frame.payload.size} " +
+            "${body.take(80)} → ack 0x${ack.toUInt().toString(16)} (empty)")
+        PxcFrame(ack, ByteArray(0)).write(out)
+        return true
     }
 }

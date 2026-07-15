@@ -35,7 +35,7 @@ class EasyConnProber(
     companion object {
         const val PORT_MEDIA_DATA = 10920   // MediaProjectService data
         const val PORT_MEDIA_CTRL = 10921   // MediaProjectService ctrl
-        const val PORT_PXC_CTRL   = 10922   // PXCService ctrl (channel selects + CLIENT_INFO)
+        const val PORT_PXC_CTRL   = 10922   // PXC control socket (channel selects + CLIENT_INFO)
         const val BIKE_PROBE_PORT = 10930   // bike's EasyConn mDNS/probe endpoint
         const val SPOOFED_PACKAGE = "com.cfmoto.cfmotointernational"
         private val LISTEN_PORTS = intArrayOf(PORT_PXC_CTRL, PORT_MEDIA_CTRL, PORT_MEDIA_DATA)
@@ -43,6 +43,7 @@ class EasyConnProber(
 
     private val handshake = PxcHandshake(log)
     private val servers = ArrayList<ServerSocket>()
+    private val clients = java.util.Collections.synchronizedList(ArrayList<Socket>())
     private var multicastLock: WifiManager.MulticastLock? = null
     private var heartbeatThread: Thread? = null
     @Volatile private var running = false
@@ -64,6 +65,11 @@ class EasyConnProber(
         log("our IP=${myIp.hostAddress}  bike IP=${bikeIp.hostAddress}")
 
         running = true
+        // Reset per-session latches: this prober instance is reused across Stop→Start, and a stale
+        // `probed=true` would make sendMdnsRespond skip the probe, so the bike is never told to
+        // connect back — you join Wi-Fi but no stream appears until the app is force-restarted.
+        probed = false
+        framesSent = 0
         acquireMulticastLock()
 
         // 1. Listen on all three ports BEFORE probing, so we're ready for the bike's call-back.
@@ -94,6 +100,13 @@ class EasyConnProber(
         heartbeatThread?.interrupt(); heartbeatThread = null
         for (s in servers) try { s.close() } catch (_: IOException) {}
         servers.clear()
+        // Close accepted connections too — their read/heartbeat threads loop on `running` but block
+        // on socket reads, so closing the socket is what actually unblocks and ends them. Otherwise a
+        // stale bike connection could linger and interfere with the next session's shared handshake.
+        synchronized(clients) {
+            for (c in clients) try { c.close() } catch (_: IOException) {}
+            clients.clear()
+        }
         multicastLock?.let { try { if (it.isHeld) it.release() } catch (_: Exception) {} }
         multicastLock = null
         log("stopped")
@@ -149,7 +162,31 @@ class EasyConnProber(
                     if (running) log("[:$port] accept ended: ${e.message}"); break
                 }
                 log("[:$port] <<< bike connected from ${client.remoteSocketAddress}")
+                clients.add(client)
                 thread(name = "ec-conn-$port", isDaemon = true) { readLoop(port, client) }
+            }
+        }
+
+    /**
+     * Keep the control socket alive on bikes that never send their own heartbeats (the CFMoto 800NK,
+     * [Nk800Profile]): an idle :10922 makes the bike tear down and re-handshake the whole session every
+     * ~7s. Send phone→bike [PxcFrame.CMD_HEARTBEAT] every ~2s. Gated on the selected profile, so it's a
+     * no-op on the 675/1000MT-X (which drive their own heartbeats). Profile is chosen from CLIENT_INFO
+     * within ~1s of connect — well inside the ~7s window.
+     */
+    private fun startPhoneHeartbeat(tag: String, socket: Socket) =
+        thread(name = "ec-hb-$tag", isDaemon = true) {
+            val out = socket.getOutputStream()
+            var sent = 0
+            while (running && !socket.isClosed) {
+                try { Thread.sleep(2000) } catch (_: InterruptedException) { return@thread }
+                if (!handshake.profile.requiresPhoneHeartbeat) continue
+                try {
+                    PxcFrame(PxcFrame.CMD_HEARTBEAT, ByteArray(0)).write(out)
+                    if (++sent <= 2) log("[$tag] → phone heartbeat 0x70000000 (#$sent)")
+                } catch (e: Exception) {
+                    log("[$tag] heartbeat stopped: ${e.message}"); return@thread
+                }
             }
         }
 
@@ -160,9 +197,10 @@ class EasyConnProber(
         try {
             val input = BufferedInputStream(socket.getInputStream())
             // Framing is by port (consistent across every run):
-            //   10922 = PXC control (16-byte CmdBaseHead); 10921/10920 = media (8-byte ReqBase).
+            //   10922 = PXC control (16-byte header); 10921/10920 = media (8-byte header).
             if (port == PORT_PXC_CTRL) {
-                log("[$tag] framing=CmdBaseHead (PXC control)")
+                log("[$tag] framing=PXC control (16-byte header)")
+                startPhoneHeartbeat(tag, socket)
                 while (running) {
                     val frame = try { PxcFrame.read(input) } catch (e: Exception) {
                         log("[$tag] frame error: ${e.message}"); return
@@ -171,7 +209,7 @@ class EasyConnProber(
                     catch (e: Exception) { log("[$tag] handler error: $e") }
                 }
             } else {
-                log("[$tag] framing=ReqBase (media plane) profile=${handshake.profile.name}")
+                log("[$tag] framing=media plane (8-byte header) profile=${handshake.profile.name}")
                 mediaLoop(tag, input, socket.getOutputStream())
             }
         } catch (e: IOException) {
@@ -181,7 +219,7 @@ class EasyConnProber(
         }
     }
 
-    // ---- Media plane: Protocol.ReqBase framing (8-byte LE header + body) ----
+    // ---- Media plane: 8-byte LE header + body ----
     // header: cmdType(s16) | cmdLen(s16) | token(i32); reply uses the same header.
     private fun mediaLoop(tag: String, input: java.io.InputStream, out: OutputStream) {
         val header = ByteArray(8)
@@ -197,8 +235,8 @@ class EasyConnProber(
         }
     }
 
-    /** Frame reply on the data socket is written RAW (not ReqBase): [size i32 LE][access unit].
-     *  Inferred from the partial-decompiled MediaProjectServerDataExecuteThread.reply*Data(). */
+    /** Frame reply on the data socket is written RAW (not the 8-byte media header): [size i32 LE][access unit].
+     *  Format observed from the data-socket traffic. */
     private fun sendFrameRaw(out: OutputStream, frame: ByteArray) {
         val sz = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(0, frame.size).array()
         synchronized(out) {
@@ -208,7 +246,7 @@ class EasyConnProber(
         }
     }
 
-    private fun sendReqBase(out: OutputStream, cmdType: Int, body: ByteArray?) {
+    private fun sendMediaFrame(out: OutputStream, cmdType: Int, body: ByteArray?) {
         val len = body?.size ?: 0
         val h = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
         h.putShort(0, cmdType.toShort())
@@ -243,24 +281,24 @@ class EasyConnProber(
                 rly.putShort(6, negH.toShort())
                 rly.put(8, supportExtend)
                 log("[$tag] → RLY_CONFIG_CAPTURE(17) encoder=${if (wantEncoder==0) 2 else wantEncoder} w=$negW h=$negH")
-                sendReqBase(out, 17, rly.array())
+                sendMediaFrame(out, 17, rly.array())
             }
             48 -> { // REQ_GET_VERSION → 49 (two LE ints: version, subVersion=1) per ctrl thread
                 log("[$tag] REQ_GET_VERSION → RLY 49")
                 val v = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
                 v.putInt(0, 3); v.putInt(4, 1)
-                sendReqBase(out, 49, v.array())
+                sendMediaFrame(out, 49, v.array())
             }
             64 -> { // REQ_HEARTBEAT → 65
-                sendReqBase(out, 65, null)
+                sendMediaFrame(out, 65, null)
             }
             96 -> { // REQ_CONFIGCAPTUREREXTEND → 97 (JSON). Send state OK.
                 log("[$tag] REQ_CONFIGCAPTUREREXTEND len=${body.size} ${String(body, Charsets.UTF_8).take(120)} → RLY 97")
-                sendReqBase(out, 97, "{\"state\":0}".toByteArray(Charsets.UTF_8))
+                sendMediaFrame(out, 97, "{\"state\":0}".toByteArray(Charsets.UTF_8))
             }
             128 -> { // REQ_START_H264 → 129 (then bike expects frames on data socket)
                 log("[$tag] *** REQ_START_H264 *** len=${body.size} → RLY 129 (no encoder yet — video stage TODO)")
-                sendReqBase(out, 129, null)
+                sendMediaFrame(out, 129, null)
             }
             112 -> { // REQ_RV_DATA_START → start encoder, then RLY_RV_DATA_START(113)
                 if (video == null) {
@@ -278,7 +316,7 @@ class EasyConnProber(
                     }
                 }
                 log("[$tag] → RLY 113")
-                sendReqBase(out, 113, null)
+                sendMediaFrame(out, 113, null)
             }
             114 -> { // REQ_RV_DATA_NEXT — bike pulling a frame (data socket); send one access unit raw
                 val frame = video?.pollFrame(1500)
@@ -308,7 +346,20 @@ class EasyConnProber(
                 if (gw is Inet4Address && !gw.isAnyLocalAddress) return gw
             }
         }
-        return lp.dnsServers.filterIsInstance<Inet4Address>().firstOrNull()
+        lp.dnsServers.filterIsInstance<Inet4Address>().firstOrNull()?.let { return it }
+        // Android 15/16 Wi-Fi Direct often reports no usable default-route gateway (0.0.0.0), which
+        // aborted the connect with "cannot resolve bike gateway". These CFMoto bikes always sit at
+        // <our-subnet>.1 (192.168.49.1 on Wi-Fi Direct P2P, 192.168.0.1 on the 675 plain AP), so derive
+        // the gateway from our own IPv4 by forcing the last octet to 1.
+        val myIp = lp.linkAddresses.map { it.address }.filterIsInstance<Inet4Address>()
+            .firstOrNull { !it.isLoopbackAddress && !it.isLinkLocalAddress && !it.isAnyLocalAddress }
+        if (myIp != null) {
+            val o = myIp.address
+            val gw = java.net.InetAddress.getByAddress(byteArrayOf(o[0], o[1], o[2], 1)) as Inet4Address
+            log("resolveGateway: no route gateway; derived ${gw.hostAddress} from our IP ${myIp.hostAddress}")
+            return gw
+        }
+        return null
     }
 
     private fun pickBikeInterfaceIp(network: Network?): Inet4Address? {

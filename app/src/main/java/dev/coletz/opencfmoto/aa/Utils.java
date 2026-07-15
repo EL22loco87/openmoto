@@ -1,6 +1,6 @@
 // Ported from headunit-revived (AGPLv3): app/.../aap/Utils.java
 // Original project (c) Michael Reid / Andre Rinas — headunit-revived, AGPLv3.
-// Adapted for OpenCfMoto: package + logging shim only.
+// Adapted for OpenMoto: package + logging shim only.
 package dev.coletz.opencfmoto.aa;
 
 import java.io.ByteArrayOutputStream;

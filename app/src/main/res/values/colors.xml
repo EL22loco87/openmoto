@@ -2,4 +2,18 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <color name="ink">#FF0C0C0A</color>
+    <color name="ink_deep">#FF070706</color>
+    <color name="paper">#FFE7E3D8</color>
+    <color name="paper_soft">#FFC6C2B5</color>
+    <color name="paper_dim">#FF8F8B7E</color>
+    <color name="paper_faint">#FF45433B</color>
+    <color name="scrim">#CC070706</color>
+
+    <!-- Sparse functional accents on the monochrome base: amber = working, green = linked,
+         red = a live session that STOP would tear down. -->
+    <color name="accent_amber">#FFE8B54D</color>
+    <color name="accent_green">#FF77C97F</color>
+    <color name="accent_red">#FFD96A5A</color>
 </resources>

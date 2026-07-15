@@ -44,6 +44,27 @@ class AaCompositor(private val log: (String) -> Unit) {
     private var pbuffer: EGLSurface = EGL14.EGL_NO_SURFACE   // keeps a current surface before output exists
     private var windowSurface: EGLSurface = EGL14.EGL_NO_SURFACE
 
+    // Optional second output: an on-screen preview for the in-app AA control surface. Same texture,
+    // drawn a second time into the app's SurfaceView so the rider can see AND touch the AA UI.
+    private var previewSurface: EGLSurface = EGL14.EGL_NO_SURFACE
+    // The Surface currently attached as preview; used to reject stale detach calls (see detachPreview).
+    @Volatile private var previewOwner: Surface? = null
+    @Volatile private var previewW = 0
+    @Volatile private var previewH = 0
+    private var previewSrcW = 0
+    private var previewSrcH = 0
+    // The letterboxed rect the AA image occupies inside the preview view, in VIEW pixels (top-left
+    // origin — symmetric centering makes this valid from either origin). The control surface reads
+    // these to map a finger touch back to AA coordinates. 0 until a preview is set.
+    @Volatile var pvpX = 0
+        private set
+    @Volatile var pvpY = 0
+        private set
+    @Volatile var pvpW = 0
+        private set
+    @Volatile var pvpH = 0
+        private set
+
     private var program = 0
     private var aPosition = 0
     private var aTexCoord = 0
@@ -66,6 +87,10 @@ class AaCompositor(private val log: (String) -> Unit) {
     @Volatile private var vpH = 0
 
     private val texMatrix = FloatArray(16)
+
+    // Preview throttle: cap the on-screen preview to ~22fps so it can't starve the decoder drain.
+    private var lastPreviewMs = 0L
+    private val PREVIEW_MIN_INTERVAL_MS = 45L
 
     // Full-screen quad (triangle strip): pos.xy + tex.uv interleaved.
     private val quad: FloatBuffer = ByteBuffer
@@ -135,22 +160,105 @@ class AaCompositor(private val log: (String) -> Unit) {
         vpY = (canvasH - vpH) / 2
     }
 
+    /**
+     * Attach an on-screen preview output (the in-app control surface) so the same decoded AA frame
+     * is also drawn into [surface], letterboxed to the AA aspect inside a [viewW]×[viewH] view.
+     * [sourceW]/[sourceH] are the AA projection dims (profile aaVideo). Takes ownership: [surface]
+     * becomes the current preview owner, so a late detach from a *previous* surface can't clobber it.
+     */
+    fun attachPreview(surface: Surface, viewW: Int, viewH: Int, sourceW: Int, sourceH: Int) {
+        handler.post {
+            try {
+                if (previewSurface != EGL14.EGL_NO_SURFACE) {
+                    EGL14.eglMakeCurrent(eglDisplay, pbuffer, pbuffer, eglContext)
+                    EGL14.eglDestroySurface(eglDisplay, previewSurface)
+                    previewSurface = EGL14.EGL_NO_SURFACE
+                }
+                val attrs = intArrayOf(EGL14.EGL_NONE)
+                previewSurface = EGL14.eglCreateWindowSurface(eglDisplay, eglConfig, surface, attrs, 0)
+                previewOwner = surface
+                previewW = viewW; previewH = viewH; previewSrcW = sourceW; previewSrcH = sourceH
+                computePreviewViewport()
+                log("[COMPOSITOR] preview set view=${viewW}x$viewH src=${sourceW}x$sourceH → rect=${pvpW}x$pvpH @($pvpX,$pvpY)")
+            } catch (e: Exception) {
+                log("[COMPOSITOR] attachPreview failed: $e")
+            }
+        }
+    }
+
+    /**
+     * Detach the preview — but ONLY if [surface] is the one currently attached. During a fullscreen
+     * handoff two views briefly coexist and their surfaceDestroyed callbacks fire out of order; this
+     * ownership check stops a dying view from tearing down the preview a new view just attached.
+     */
+    fun detachPreview(surface: Surface) {
+        handler.post {
+            if (surface !== previewOwner) return@post   // stale detach from a previous owner — ignore
+            try {
+                if (previewSurface != EGL14.EGL_NO_SURFACE) {
+                    EGL14.eglMakeCurrent(eglDisplay, pbuffer, pbuffer, eglContext)
+                    EGL14.eglDestroySurface(eglDisplay, previewSurface)
+                    previewSurface = EGL14.EGL_NO_SURFACE
+                }
+            } catch (_: Exception) {}
+            previewOwner = null
+            pvpX = 0; pvpY = 0; pvpW = 0; pvpH = 0
+            log("[COMPOSITOR] preview detached")
+        }
+    }
+
+    /** Letterbox the AA source aspect inside the preview view (same fit logic as [computeViewport]). */
+    private fun computePreviewViewport() {
+        if (previewW == 0 || previewH == 0 || previewSrcW == 0 || previewSrcH == 0) return
+        val srcAspect = previewSrcW.toFloat() / previewSrcH
+        val viewAspect = previewW.toFloat() / previewH
+        if (srcAspect < viewAspect) {
+            pvpH = previewH
+            pvpW = Math.round(previewH * srcAspect)
+        } else {
+            pvpW = previewW
+            pvpH = Math.round(previewW / srcAspect)
+        }
+        pvpX = (previewW - pvpW) / 2
+        pvpY = (previewH - pvpH) / 2
+    }
+
     private fun onFrame() {
         try {
             surfaceTexture.updateTexImage()
         } catch (e: Exception) {
             return
         }
-        if (windowSurface == EGL14.EGL_NO_SURFACE) return  // no output canvas yet — just drain
+        // Draw to whichever outputs exist. Neither yet → just drain (keeps AA video flowing so it
+        // reaches steady state before the bike connects, and supports preview-before-bike).
+        if (windowSurface == EGL14.EGL_NO_SURFACE && previewSurface == EGL14.EGL_NO_SURFACE) return
         surfaceTexture.getTransformMatrix(texMatrix)
+        // The ENCODER path is priority — it feeds the dash and must NOT be starved. Draw it first.
+        if (windowSurface != EGL14.EGL_NO_SURFACE) renderTo(windowSurface, vpX, vpY, vpW, vpH, preview = false)
+        // The on-screen PREVIEW is best-effort and throttled: a full-size vsync-throttled swap on this
+        // (the decoder-draining) thread can stall the decoder → AA forces a restart → session teardown.
+        // Cap it to ~22fps and use a non-blocking swap so it can never back up the decoder/encoder.
+        if (previewSurface != EGL14.EGL_NO_SURFACE) {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastPreviewMs >= PREVIEW_MIN_INTERVAL_MS) {
+                lastPreviewMs = now
+                renderTo(previewSurface, pvpX, pvpY, pvpW, pvpH, preview = true)
+            }
+        }
+    }
 
-        EGL14.eglMakeCurrent(eglDisplay, windowSurface, windowSurface, eglContext)
+    /** Draw the current external texture into [target], letterboxed to the given GL viewport rect. */
+    private fun renderTo(target: EGLSurface, vx: Int, vy: Int, vw: Int, vh: Int, preview: Boolean) {
+        EGL14.eglMakeCurrent(eglDisplay, target, target, eglContext)
+        // Non-blocking swap for the preview so it never waits on vsync/BufferQueue and stalls the
+        // decoder drain. The encoder surface isn't a display, so its interval is irrelevant.
+        if (preview) EGL14.eglSwapInterval(eglDisplay, 0)
 
         // Black background (the letterbox bars).
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
 
-        GLES20.glViewport(vpX, vpY, vpW, vpH)
+        GLES20.glViewport(vx, vy, vw, vh)
         GLES20.glUseProgram(program)
 
         quad.position(0)
@@ -170,8 +278,8 @@ class AaCompositor(private val log: (String) -> Unit) {
         GLES20.glDisableVertexAttribArray(aPosition)
         GLES20.glDisableVertexAttribArray(aTexCoord)
 
-        EGLExt.eglPresentationTimeANDROID(eglDisplay, windowSurface, surfaceTexture.timestamp)
-        EGL14.eglSwapBuffers(eglDisplay, windowSurface)
+        EGLExt.eglPresentationTimeANDROID(eglDisplay, target, surfaceTexture.timestamp)
+        EGL14.eglSwapBuffers(eglDisplay, target)
     }
 
     fun release() {
@@ -180,6 +288,7 @@ class AaCompositor(private val log: (String) -> Unit) {
             try { if (::surfaceTexture.isInitialized) surfaceTexture.release() } catch (_: Exception) {}
             if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
                 EGL14.eglMakeCurrent(eglDisplay, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+                if (previewSurface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(eglDisplay, previewSurface)
                 if (windowSurface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(eglDisplay, windowSurface)
                 if (pbuffer != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(eglDisplay, pbuffer)
                 if (eglContext != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(eglDisplay, eglContext)

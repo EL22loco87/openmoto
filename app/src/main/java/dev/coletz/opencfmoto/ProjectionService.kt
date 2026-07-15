@@ -26,7 +26,7 @@ class ProjectionService : Service() {
             )
         }
         val notification: Notification = Notification.Builder(this, channelId)
-            .setContentTitle("OpenCfMoto")
+            .setContentTitle("OpenMoto")
             .setContentText("Mirroring screen to bike")
             .setSmallIcon(android.R.drawable.ic_menu_share)
             .build()

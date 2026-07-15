@@ -1,4 +1,4 @@
-// OpenCfMoto glue (technique ported from headunit-revived AGPLv3 AapService.startSelfMode).
+// OpenMoto glue (technique ported from headunit-revived AGPLv3 AapService.startSelfMode).
 // Triggers Google Android Auto's loopback "self-mode": asks gearhead to project to 127.0.0.1:PORT
 // with NO VPN. Best launched from a foreground Activity to satisfy Android's background-activity-
 // launch restrictions (Android 12+/15).
