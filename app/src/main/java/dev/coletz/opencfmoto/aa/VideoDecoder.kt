@@ -48,6 +48,9 @@ class VideoDecoder {
     private var lastFpsLogTime = 0L
     @Volatile var onFirstFrameListener: (() -> Unit)? = null
     @Volatile var lastFrameRenderedMs: Long = 0L
+    // When AA last handed us a video packet (set in decode()). Lets the watchdog tell a genuine
+    // decoder stall (packets arriving, no output) from AA simply idling (packets stopped).
+    @Volatile private var lastInputMs: Long = 0L
 
     @Volatile private var decoderNeedsRestart = false
     @Volatile private var decoderRestartReason: String? = null
@@ -115,6 +118,10 @@ class VideoDecoder {
     }
 
     fun decode(buffer: ByteArray, offset: Int, size: Int) {
+        // AA just handed us a video packet — record it (even if the codec input is momentarily full)
+        // so the output-thread watchdog can tell a real stall (packets arriving, no output) from AA
+        // idling (packets stopped — a static screen; it only sends on change).
+        lastInputMs = SystemClock.elapsedRealtime()
         synchronized(this) {
             if (decoderNeedsRestart) {
                 AaLog.w("Decoder restart requested: $decoderRestartReason")
@@ -338,9 +345,14 @@ class VideoDecoder {
                 }
 
                 if (lastOutputMs > 0) {
-                    val stallGap = SystemClock.elapsedRealtime() - lastOutputMs
-                    if (stallGap > 3000L) {
-                        AaLog.w("Decoder stall detected (no output for ${stallGap}ms). Forcing restart.")
+                    val outputGap = SystemClock.elapsedRealtime() - lastOutputMs
+                    val inputGap = SystemClock.elapsedRealtime() - lastInputMs
+                    // Only a genuine stall if AA is still feeding input but the decoder produces no
+                    // output. If input has also gone quiet, AA is just idle (it stops sending frames
+                    // on a static screen) — expected, so don't tear the session down. The compositor
+                    // keeps the dash fed with the last frame in the meantime.
+                    if (outputGap > 3000L && inputGap < 2000L) {
+                        AaLog.w("Decoder stall detected (no output ${outputGap}ms, last input ${inputGap}ms ago). Forcing restart.")
                         scheduleRestart("sync_stall")
                         break
                     }
