@@ -1,5 +1,15 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
+}
+
+// Release signing is driven by a gitignored keystore.properties at the repo root (see README).
+// Contributors without it still get a working (unsigned) release build.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) FileInputStream(keystorePropertiesFile).use { load(it) }
 }
 
 android {
@@ -20,15 +30,38 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            if (keystorePropertiesFile.exists()) {
+                storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Sign with the release key when the keystore is present; otherwise leave unsigned.
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    lint {
+        // res/raw/aa_privkey is the Android Auto self-mode SSL head-unit key (from headunit-revived).
+        // It MUST ship in the APK for the AAP TLS handshake — it's a functional protocol key shared by
+        // all headunit-revived-based head units, not a user secret. So the release-blocking
+        // PackagedPrivateKey check does not apply here.
+        disable += "PackagedPrivateKey"
     }
 }
 
