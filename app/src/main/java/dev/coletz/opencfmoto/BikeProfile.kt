@@ -223,7 +223,7 @@ object Cfdl26Profile : BikeProfile {
         // Also hex-dump the payload: touch/screen frames (e.g. CMD_SCREEN_TOUCH 0x30040) carry BINARY
         // coordinates that garble as UTF-8. This is how we'll reverse the touch layout from a bike test.
         val hex = if (frame.payload.isEmpty()) "" else
-            " hex=" + BleProtocol.bytesToHex(frame.payload.copyOf(minOf(48, frame.payload.size)))
+            " hex=" + Hex.bytesToHex(frame.payload.copyOf(minOf(48, frame.payload.size)))
         val tag2 = if (frame.cmd == PxcFrame.CMD_SCREEN_TOUCH) " *** SCREEN_TOUCH ***" else ""
         val ack = frame.cmd + 1
         log("[$tag] CFDL26 ctrl ${frame.cmdHex()} (${PxcFrame.nameOf(frame.cmd)})$tag2 len=${frame.payload.size} " +

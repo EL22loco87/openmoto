@@ -46,7 +46,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusValue: TextView
     private lateinit var statusBlink: View
     private lateinit var prober: EasyConnProber
-    private var bleWakeUp: BleWakeUp? = null
     private var blinkAnim: ObjectAnimator? = null
     private var cursorAnim: ObjectAnimator? = null
     private val ts = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
@@ -406,8 +405,6 @@ class MainActivity : AppCompatActivity() {
         LogBus.listener = null
         AaVideoBridge.onSteadyVideo = null
         prober.stop()
-        bleWakeUp?.stop()
-        bleWakeUp = null
         ProjectionHolder.projection?.let { try { it.stop() } catch (_: Exception) {} }
         ProjectionHolder.projection = null
         ProjectionService.stop(this)
@@ -423,8 +420,6 @@ class MainActivity : AppCompatActivity() {
         AaVideoBridge.onSteadyVideo = null
         AndroidAutoService.stop(this)
         prober.stop()
-        bleWakeUp?.stop()
-        bleWakeUp = null
         ProjectionHolder.projection?.let { try { it.stop() } catch (_: Exception) {} }
         ProjectionHolder.projection = null
         ProjectionService.stop(this)
@@ -438,8 +433,8 @@ class MainActivity : AppCompatActivity() {
             ssid = qr.ssid,
             psk = qr.pwd,
             onAvailable = {
-                // BLE wake-up is NOT required for projection (confirmed via TCP capture) — go
-                // straight to the PXC flow. runBleWakeUpThenProber() remains available if needed.
+                // Projection runs straight over the PXC flow — no wake-up step needed
+                // (confirmed via TCP capture).
                 log("→ Wi-Fi bound; starting EasyConn PXC flow …")
                 setStatus("LINK UP", Sys.LIVE)
                 try {
@@ -661,42 +656,6 @@ class MainActivity : AppCompatActivity() {
                     .start()
             }
         }
-    }
-
-    private fun runBleWakeUpThenProber() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                this, arrayOf(
-                    Manifest.permission.BLUETOOTH_CONNECT,
-                    Manifest.permission.BLUETOOTH_SCAN,
-                ), 2,
-            )
-            // The user will need to tap Scan again after granting; keeping it simple for PoC.
-            return
-        }
-        bleWakeUp?.stop()
-        bleWakeUp = BleWakeUp(
-            context = this,
-            log = ::log,
-            onUnlocked = {
-                log("→ BLE wake-up OK; starting EasyConn prober …")
-                try {
-                    prober.start(BikeWifi.currentNetwork)
-                } catch (e: Exception) {
-                    log("prober start failed: $e")
-                }
-            },
-            onFailed = { reason ->
-                log("BLE wake-up failed: $reason — TCP probe likely useless, starting anyway")
-                try {
-                    prober.start(BikeWifi.currentNetwork)
-                } catch (e: Exception) {
-                    log("prober start failed: $e")
-                }
-            },
-        ).also { it.start() }
     }
 
     private fun ensureLocationPermission() {

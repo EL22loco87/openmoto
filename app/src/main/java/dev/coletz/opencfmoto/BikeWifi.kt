@@ -14,9 +14,9 @@ import android.net.wifi.WifiNetworkSpecifier
  * resulting Network object is process-bound so our TCP sockets and mDNS lookups go through
  * the bike's interface (which has no internet — that's fine).
  *
- * QR for this bike:
- *   ssid = CFMOTO-f46457
- *   pwd  = 59a9cddc94
+ * QR for this bike (values redacted):
+ *   ssid = CFMOTO-xxxxxx
+ *   pwd  = <redacted>
  *   auth = wpa2-psk
  */
 object BikeWifi {

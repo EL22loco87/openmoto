@@ -330,7 +330,7 @@ class EasyConnProber(
                 }
             }
             else -> {
-                val preview = BleProtocol.bytesToHex(body.copyOf(minOf(32, body.size)))
+                val preview = Hex.bytesToHex(body.copyOf(minOf(32, body.size)))
                 log("[$tag] media cmdType=$cmdType len=${body.size} $preview")
             }
         }
