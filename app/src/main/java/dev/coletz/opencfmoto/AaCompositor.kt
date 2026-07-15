@@ -142,23 +142,23 @@ class AaCompositor(private val log: (String) -> Unit) {
         }
     }
 
-    /** Fit src aspect inside the canvas, centered (letterbox). */
-    private fun computeViewport() {
-        if (canvasW == 0 || canvasH == 0 || srcW == 0 || srcH == 0) return
-        val srcAspect = srcW.toFloat() / srcH
-        val canvasAspect = canvasW.toFloat() / canvasH
-        if (srcAspect < canvasAspect) {
-            // source narrower than canvas → fit height, black bars left/right
-            vpH = canvasH
-            vpW = Math.round(canvasH * srcAspect)
-        } else {
-            // source wider → fit width, black bars top/bottom
-            vpW = canvasW
-            vpH = Math.round(canvasW / srcAspect)
-        }
-        vpX = (canvasW - vpW) / 2
-        vpY = (canvasH - vpH) / 2
+/** Fill width first, then fit height (crop letterbox instead of black bars on sides). */
+private fun computeViewport() {
+    if (canvasW == 0 || canvasH == 0 || srcW == 0 || srcH == 0) return
+    
+    // Start by filling the full width
+    vpW = canvasW
+    vpH = Math.round(canvasW * srcH.toFloat() / srcW)
+    
+    // If height overflows, fit to height instead
+    if (vpH > canvasH) {
+        vpH = canvasH
+        vpW = Math.round(canvasH * srcW.toFloat() / srcH)
     }
+    
+    vpX = (canvasW - vpW) / 2
+    vpY = (canvasH - vpH) / 2
+}
 
     /**
      * Attach an on-screen preview output (the in-app control surface) so the same decoded AA frame
