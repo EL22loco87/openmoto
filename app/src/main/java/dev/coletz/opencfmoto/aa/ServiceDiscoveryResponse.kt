@@ -29,6 +29,8 @@ class ServiceDiscoveryResponse
             Control.Service.MediaSinkService.VideoConfiguration.VideoCodecResolutionType = when (r) {
             AaResolution.LANDSCAPE_800x480 ->
                 Control.Service.MediaSinkService.VideoConfiguration.VideoCodecResolutionType._800x480
+            AaResolution.LANDSCAPE_1280x720 ->
+                Control.Service.MediaSinkService.VideoConfiguration.VideoCodecResolutionType._1280x720
             AaResolution.PORTRAIT_720x1280 ->
                 Control.Service.MediaSinkService.VideoConfiguration.VideoCodecResolutionType._720x1280
             AaResolution.PORTRAIT_1080x1920 ->

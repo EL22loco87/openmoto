@@ -92,6 +92,31 @@ class AaCompositor(private val log: (String) -> Unit) {
     private var lastPreviewMs = 0L
     private val PREVIEW_MIN_INTERVAL_MS = 45L
 
+    // Idle keepalive: Android Auto only sends video on change, so on a static screen (e.g. parked)
+    // it stops emitting frames — onFrame() stops firing, the encoder goes silent, and the bike's
+    // media socket times out (~9s, its socketTimeoutPeriodWifi) and drops the connection. Re-present
+    // the last decoded frame at a low floor rate so the dash stays fed and the picture holds. It
+    // self-gates: during active streaming onFrame() keeps lastEncoderDrawMs fresh, so this never
+    // double-draws; it only fires once the live path has gone quiet.
+    private var lastEncoderDrawMs = 0L
+    private var lastFrameValid = false
+    private var lastPresentedPtsNs = 0L
+    private val KEEPALIVE_INTERVAL_MS = 500L   // ~2 fps floor, well under the bike's ~9s socket timeout
+    private val keepalive = object : Runnable {
+        override fun run() {
+            if (windowSurface != EGL14.EGL_NO_SURFACE && lastFrameValid &&
+                android.os.SystemClock.uptimeMillis() - lastEncoderDrawMs >= KEEPALIVE_INTERVAL_MS
+            ) {
+                // No updateTexImage() — no new frame arrived; re-present the one the encoder last saw,
+                // with an advanced timestamp so the encoder treats it as a fresh (all-IDR) frame.
+                lastPresentedPtsNs += KEEPALIVE_INTERVAL_MS * 1_000_000L
+                renderTo(windowSurface, vpX, vpY, vpW, vpH, preview = false, ptsNs = lastPresentedPtsNs)
+                lastEncoderDrawMs = android.os.SystemClock.uptimeMillis()
+            }
+            handler.postDelayed(this, KEEPALIVE_INTERVAL_MS)
+        }
+    }
+
     // Full-screen quad (triangle strip): pos.xy + tex.uv interleaved.
     private val quad: FloatBuffer = ByteBuffer
         .allocateDirect(4 * 4 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
@@ -114,6 +139,7 @@ class AaCompositor(private val log: (String) -> Unit) {
                 surfaceTexture.setOnFrameAvailableListener({ handler.post { onFrame() } }, handler)
                 inputSurface = Surface(surfaceTexture)
                 log("[COMPOSITOR] ready — AA decoder input surface up (no output canvas yet)")
+                handler.post(keepalive)   // idle keepalive; no-ops until an output canvas is set
             } catch (e: Exception) {
                 log("[COMPOSITOR] init failed: $e")
             } finally {
@@ -234,7 +260,13 @@ class AaCompositor(private val log: (String) -> Unit) {
         if (windowSurface == EGL14.EGL_NO_SURFACE && previewSurface == EGL14.EGL_NO_SURFACE) return
         surfaceTexture.getTransformMatrix(texMatrix)
         // The ENCODER path is priority — it feeds the dash and must NOT be starved. Draw it first.
-        if (windowSurface != EGL14.EGL_NO_SURFACE) renderTo(windowSurface, vpX, vpY, vpW, vpH, preview = false)
+        if (windowSurface != EGL14.EGL_NO_SURFACE) {
+            lastPresentedPtsNs = surfaceTexture.timestamp
+            renderTo(windowSurface, vpX, vpY, vpW, vpH, preview = false, ptsNs = lastPresentedPtsNs)
+            // Mark the live path as active so the idle keepalive stays out of the way.
+            lastEncoderDrawMs = android.os.SystemClock.uptimeMillis()
+            lastFrameValid = true
+        }
         // The on-screen PREVIEW is best-effort and throttled: a full-size vsync-throttled swap on this
         // (the decoder-draining) thread can stall the decoder → AA forces a restart → session teardown.
         // Cap it to ~22fps and use a non-blocking swap so it can never back up the decoder/encoder.
@@ -242,13 +274,13 @@ class AaCompositor(private val log: (String) -> Unit) {
             val now = android.os.SystemClock.uptimeMillis()
             if (now - lastPreviewMs >= PREVIEW_MIN_INTERVAL_MS) {
                 lastPreviewMs = now
-                renderTo(previewSurface, pvpX, pvpY, pvpW, pvpH, preview = true)
+                renderTo(previewSurface, pvpX, pvpY, pvpW, pvpH, preview = true, ptsNs = surfaceTexture.timestamp)
             }
         }
     }
 
     /** Draw the current external texture into [target], letterboxed to the given GL viewport rect. */
-    private fun renderTo(target: EGLSurface, vx: Int, vy: Int, vw: Int, vh: Int, preview: Boolean) {
+    private fun renderTo(target: EGLSurface, vx: Int, vy: Int, vw: Int, vh: Int, preview: Boolean, ptsNs: Long) {
         EGL14.eglMakeCurrent(eglDisplay, target, target, eglContext)
         // Non-blocking swap for the preview so it never waits on vsync/BufferQueue and stalls the
         // decoder drain. The encoder surface isn't a display, so its interval is irrelevant.
@@ -278,11 +310,12 @@ class AaCompositor(private val log: (String) -> Unit) {
         GLES20.glDisableVertexAttribArray(aPosition)
         GLES20.glDisableVertexAttribArray(aTexCoord)
 
-        EGLExt.eglPresentationTimeANDROID(eglDisplay, target, surfaceTexture.timestamp)
+        EGLExt.eglPresentationTimeANDROID(eglDisplay, target, ptsNs)
         EGL14.eglSwapBuffers(eglDisplay, target)
     }
 
     fun release() {
+        handler.removeCallbacks(keepalive)
         handler.post {
             try { inputSurface?.release() } catch (_: Exception) {}
             try { if (::surfaceTexture.isInitialized) surfaceTexture.release() } catch (_: Exception) {}

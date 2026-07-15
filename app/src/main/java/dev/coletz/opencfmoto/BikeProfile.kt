@@ -19,6 +19,7 @@ import java.io.OutputStream
 /** A video resolution/orientation Android Auto can be asked to project (maps to an AAP enum). */
 enum class AaResolution(val w: Int, val h: Int) {
     LANDSCAPE_800x480(800, 480),
+    LANDSCAPE_1280x720(1280, 720),
     PORTRAIT_720x1280(720, 1280),
     PORTRAIT_1080x1920(1080, 1920),
 }
@@ -257,9 +258,12 @@ object Nk800Profile : BikeProfile {
     override val advertisedSupportFunction = 128
     override val requiresPhoneHeartbeat = true
 
-    /** The 800NK's landscape panel takes 800x400. Ask AA for landscape 800x480 (nearest AA tier);
-     *  the compositor letterboxes/crops it into the 800x400 canvas. ~140 dpi (per AA negotiation). */
-    override val aaVideo = AaVideoSpec(AaResolution.LANDSCAPE_800x480, dpi = 140)
+    /** The 800NK's landscape panel takes 800x400 (a wide ~2:1 shape). Ask AA for 16:9 1280x720
+     *  instead of 800x480: 16:9 (1.78:1) is closer to the panel's 2:1 than 5:3 (1.67:1), so the
+     *  letterbox side-bars shrink (~44px/side vs ~66px) and the map is a bit larger. dpi 224 keeps
+     *  the same ~914dp width as 800x480@140 so the UI stays the same apparent size, just wider and
+     *  sharper. The compositor letterboxes it into the 800x400 canvas (encoder output unchanged). */
+    override val aaVideo = AaVideoSpec(AaResolution.LANDSCAPE_1280x720, dpi = 224)
 
     /** US 800NK QR modelId — used to pick AA resolution before connecting. */
     override fun matchesModelId(modelId: String): Boolean = modelId.trim() == "66660703"
